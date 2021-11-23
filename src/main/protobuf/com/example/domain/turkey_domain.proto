@@ -22,6 +22,7 @@ message TurkeyState {
     }
     DoneStatus done = 2;
     float external_temperature = 3;
+    float internal_temperature = 4;
 
 }
 
@@ -34,5 +35,10 @@ message OutOfOven {
 
 message TemperatureChange {
     string turkey_id = 1 [(akkaserverless.field).entity_key = true];
-    float new_temperature = 2;    
+    enum Type {
+        INTERNAL = 0;
+        EXTERNAL = 1;
+    }
+    Type change_type = 2;
+    float new_temperature = 3;    
 }

@@ -31,6 +31,8 @@ service TurkeyService {
     rpc EndCooking(CookingCommand) returns (google.protobuf.Empty);
     rpc IncreaseOvenTemperature(TemperatureChangeCommand) returns (google.protobuf.Empty);
     rpc DecreaseOvenTemperature(TemperatureChangeCommand) returns (google.protobuf.Empty);
-
+    rpc IncreaseTurkeyTemperature(TemperatureChangeCommand) returns (google.protobuf.Empty);
+    rpc DecreaseTurkeyTemperature(TemperatureChangeCommand) returns (google.protobuf.Empty);
+    
     rpc GetCurrentTurkey(GetTurkeyCommand) returns (domain.TurkeyState);
 }
