@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package com.example.domain;
+
+import "akkaserverless/annotations.proto";
+
+option (akkaserverless.file).event_sourced_entity = {
+    name: "Turkey"
+    entity_type: "turkey"
+    state: "TurkeyState",
+    events: ["InOven", "OutOfOven", "TemperatureChange"]
+};
+
+message TurkeyState {
+    bool in_oven = 1;
+    enum DoneStatus {
+        RAW = 0;
+        SALMONELLA = 1;
+        STILL_SALMONELLA = 2;
+        ALMOST_THERE = 3;
+        PERFECT = 4;
+    }
+    DoneStatus done = 2;
+    float external_temperature = 3;
+
+}
+
+message InOven {
+    string turkey_id = 1 [(akkaserverless.field).entity_key = true];
+}
+message OutOfOven {
+    string turkey_id = 1 [(akkaserverless.field).entity_key = true];
+}
+
+message TemperatureChange {
+    string turkey_id = 1 [(akkaserverless.field).entity_key = true];
+    float new_temperature = 2;    
+}
