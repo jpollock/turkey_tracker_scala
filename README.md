@@ -18,7 +18,7 @@ At the end of this article, you will have prepared yourself fully for a real Tha
 
 Let's get going!
 
-For this exercise, we will start with a partially cooked project. Go ahead and get your environment setup by cloning: `git clone git@github.com:jpollock/turkey_tracker_python.git`. The `main` brach is our starter, the partially cooked turkey, if you will. There are other branches that you can pull to get further along the cooking process. Oops. I mean "coding process"!
+For this exercise, we will start with a partially cooked project. Go ahead and get your environment setup by cloning: `git clone git@github.com:jpollock/turkey_tracker_scala.git`. The `main` brach is our starter, the partially cooked turkey, if you will. There are other branches that you can pull to get further along the cooking process. Oops. I mean "coding process"!
 
 1. The `schema_change` branch has the modifications we will do in the first part of this exercise;
 2. The `kafka_integration` branch has the modifications we will do in the latter part, i.e. when we hook up Kafka to Akka Serverless!
@@ -26,18 +26,16 @@ For this exercise, we will start with a partially cooked project. Go ahead and g
 ## What The Turkey Expects
 In order to walk through the code in this post, you're going to want the following set up in your environment:
 1. [Docker 20.10.8 or higher] (https://docs.docker.com/engine/install/);
-2. [Python3](https://www.python.org/downloads/);
+2. [sbt](https://www.scala-sbt.org/);
 3. [Curl](https://curl.se/download.html).
 
 ## Initial State
 
 To kick things off, let's walk through the initial part of the exercise..
 
-1. In a terminal window, get into the root of the project directory, cloned above, e.g.  `cd turkey_tracker_python`;
-2. You will want to create a [Virtual Environment](https://docs.python.org/3/library/venv.html): `python3 -m venv akkasls_env` (`akkasls_env` can be named whatever you want and located anywhere though);
-3. Initiate the virtual environment: `source akkasls_env/bin/activate`;
-4. Install the needed Python libraries: `pip install -r requirements.txt`;
-5. In the same terminal window (or another with the virtual environment activated), start the partially cooked Turkey API: `start.sh`.
+1. In a terminal window, get into the root of the project directory, cloned above, e.g.  `cd turkey_tracker_scala`;
+2. In the same terminal window, start the partially cooked Turkey API: `sbt run`;
+3. In another terminal window, in the root of the project directory: `docker-compose -f docker-compose-proxy.yml`.
 
 ### Make Some API Calls
 Let's start cooking!
@@ -180,60 +178,58 @@ We see that we have API signatures - `Commands` - for increasing and decreasing 
 		rpc IncreaseTurkeyTemperature(TemperatureChangeCommand) returns (google.protobuf.Empty);
 		rpc DecreaseTurkeyTemperature(TemperatureChangeCommand) returns (google.protobuf.Empty);
 
-So far, we have modified our data schema and API specification to account for this need to prevent salmonella poisoining. Now we have to add the appropriate logic in our Python code to account for this change. Let's look at our `turkey_eventsourced_entity.py`.
+So far, we have modified our data schema and API specification to account for this need to prevent salmonella poisoining. Now we have to add the appropriate logic in our Scala code to account for this change. Let's look at our `src/main/scala/domain/Turkey.scala` file.
 
 As mentioned earlier in this post, we are using [Event Sourcing](https://martinfowler.com/eaaDev/EventSourcing.html) as the state model for Akka Serverless. For the file that we're inspecting now - the logic behind getting data in and out of Akka - that means that we need to have code for handling both `commands` and `events`. We see both for our oven temperature changes; snippets for the `IncreaseOvenTemperature` flow below.
 
-	@entity.command_handler("IncreaseOvenTemperature")
-	def increase_oven_temperature(state: TurkeyState, command: TemperatureChangeCommand, context: EventSourcedCommandContext):
-		np = TemperatureChange(turkey_id= command.turkey_id, new_temperature=(state.external_temperature + command.temperature_change))
-		context.emit(np)
-		return Empty()
+	override def increaseOvenTemperature(currentState: TurkeyState, temperatureChangeCommand: example.TemperatureChangeCommand): EventSourcedEntity.Effect[Empty] = {
+		effects
+		.emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, newTemperature=(currentState.externalTemperature + temperatureChangeCommand.temperatureChange))) 
+		.thenReply(_ => Empty.defaultInstance) 
+	}
 
-	@entity.event_handler(TemperatureChange)
-	def temperature_changed(state: TurkeyState, event: TemperatureChange ):
-		state.external_temperature = event.new_temperature
-		return state
+	override def temperatureChange(currentState: TurkeyState, temperatureChange: TemperatureChange): TurkeyState = {
+		currentState.copy(externalTemperature = temperatureChange.newTemperature)
+	}
 
 When an API request is issued to Akka Serverless, to increase the temperature of the oven, that request is handled by the command handler above, which creates the `TemperatureChange` event and emits it. That event is subsequently, and **asynchronously**, handled by the event handler, which updates the actual state of the turkey with the new `external_temperature`. We need to make some modifications, to account for the `type` attribute of the `TemperatureChange` message schema, so we can reuse that, distinguishing between `internal` and `external` updates.
 
 Let's first update the existing code, adding in the `type` attribute:
 
-	@entity.command_handler("IncreaseOvenTemperature")
-	def increase_oven_temperature(state: TurkeyState, command: TemperatureChangeCommand, context: EventSourcedCommandContext):
-		np = TemperatureChange(turkey_id= command.turkey_id, type=TemperatureChange.Type.EXTERNAL, new_temperature=(state.external_temperature + command.temperature_change))
-		context.emit(np)
-		return Empty()
+	override def increaseOvenTemperature(currentState: TurkeyState, temperatureChangeCommand: example.TemperatureChangeCommand): EventSourcedEntity.Effect[Empty] = {
+		effects
+		.emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.EXTERNAL, newTemperature=(currentState.externalTemperature + temperatureChangeCommand.temperatureChange))) 
+		.thenReply(_ => Empty.defaultInstance) 
+	}
 
-	@entity.command_handler("DecreaseOvenTemperature")
-	def decrease_oven_temperature(state: TurkeyState, command: TemperatureChangeCommand, context: EventSourcedCommandContext):
-		np = TemperatureChange(turkey_id= command.turkey_id, type=TemperatureChange.Type.EXTERNAL, new_temperature=(state.external_temperature - command.temperature_change))
-		context.emit(np)
-		return Empty()
+	override def decreaseOvenTemperature(currentState: TurkeyState, temperatureChangeCommand: example.TemperatureChangeCommand): EventSourcedEntity.Effect[Empty]= {
+		effects
+		.emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.EXTERNAL, newTemperature=(currentState.externalTemperature - temperatureChangeCommand.temperatureChange))) 
+		.thenReply(_ => Empty.defaultInstance) 
+	}
 		
 Let's add the new command handlers for the increasing and decreasing of turkey temperature.
 
-	@entity.command_handler("IncreaseTurkeyTemperature")
-	def increase_turkey_temperature(state: TurkeyState, command: TemperatureChangeCommand, context: EventSourcedCommandContext):
-		np = TemperatureChange(turkey_id= command.turkey_id, type=TemperatureChange.Type.INTERNAL, new_temperature=(state.internal_temperature + command.temperature_change))
-		context.emit(np)
-		return Empty()
-	
-	@entity.command_handler("DecreaseTurkeyTemperature")
-	def decrease_turkey_temperature(state: TurkeyState, command: TemperatureChangeCommand, context: EventSourcedCommandContext):
-		np = TemperatureChange(turkey_id= command.turkey_id, type=TemperatureChange.Type.INTERNAL, new_temperature=(state.internal_temperature - command.temperature_change))
-		context.emit(np)
-		return Empty()
+	override def increaseTurkeyTemperature(currentState: TurkeyState, temperatureChangeCommand: example.TemperatureChangeCommand): EventSourcedEntity.Effect[Empty] = {
+		effects
+		.emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.INTERNAL, newTemperature=(currentState.externalTemperature + temperatureChangeCommand.temperatureChange))) 
+		.thenReply(_ => Empty.defaultInstance) 
+	}
+
+	override def decreaseTurkeyTemperature(currentState: TurkeyState, temperatureChangeCommand: example.TemperatureChangeCommand): EventSourcedEntity.Effect[Empty]= {
+		effects
+		.emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.INTERNAL, newTemperature=(currentState.externalTemperature - temperatureChangeCommand.temperatureChange))) 
+		.thenReply(_ => Empty.defaultInstance) 
+	}
 		
 And finally, let's update the event handler to account for the different types of temperature changes.
 
-	@entity.event_handler(TemperatureChange)
-	def temperature_changed(state: TurkeyState, event: TemperatureChange ):
-		if event.type == TemperatureChange.Type.EXTERNAL:
-			state.external_temperature = event.new_temperature
-		elif event.type == TemperatureChange.Type.INTERNAL:
-			state.internal_temperature = event.new_temperature
-		return state
+	override def temperatureChange(currentState: TurkeyState, temperatureChange: TemperatureChange): TurkeyState = {
+		temperatureChange.changeType match {
+		case TemperatureChange.Type.EXTERNAL => currentState.copy(externalTemperature = temperatureChange.newTemperature)
+		case TemperatureChange.Type.INTERNAL => currentState.copy(internalTemperature = temperatureChange.newTemperature)
+		}    
+	}
 
 Smell that? That's some turkey cooking! Let's see how far along it is.
 
@@ -267,9 +263,9 @@ Before moving on to the next section of this post, please shut down the services
 
 > **NOTE:** You can `git clone kafka_integration` to get all of the code changes below.
 
-One of the amazing features in Akka Serverless is the ability to ingest (and egress if so desired) events from external messaging systems, e.g. Google Pubsub and Kafka, as well as use events to communicate between services running in the Akka Serverless Platform-as-a-Service (PaaS). You can read more about this feature [here](https://jpollock.github.io/akkaserverless-python-sdk/python/topic-eventing.html), although it is recommended to visit the main Akka Serverless [doc site](https://developer.lightbend.com/docs/akka-serverless/index.html) for all information, as the Python SDK is community managed and may lag behind the production offering.
+One of the amazing features in Akka Serverless is the ability to ingest (and egress if so desired) events from external messaging systems, e.g. Google Pubsub and Kafka, as well as use events to communicate between services running in the Akka Serverless Platform-as-a-Service (PaaS). You can read more about this feature [here](https://developer.lightbend.com/docs/akka-serverless/java/actions-publishing-subscribing.html).
 
-Eventing easy to add though! And actually won't require any more Python coding beyond the already implemented change for tracking a turkey's internal temperature.
+Eventing easy to add though! And actually won't require any more Scala coding beyond the already implemented change for tracking a turkey's internal temperature.
 
 First, let's define that events will be supported, and of what type, for our APIs. For our prevent-salmonella-poisoning scenario, let's imagine that industry - a company perhaps - has delivered to the market a product that enables for remote recommendation generation based on machine-learning models being run in a cloud distant from the homes in which the turkeys are being cooked. We're not going to actually create an ML model and run it but we will simulate the process by which those events could be published on to a company's Kafka broker and sent through the pipes into Akka Serverless. So instead of making `gRPC` or `HTTP` API calls to increase the temperature of the oven, for example, we can have those commands issued from deep within the bowels of a company's infrastructure and sent over Kafka to the turkey entities managed in the Akka Serverless cloud. Neat, huh?
 
@@ -290,7 +286,7 @@ That is it. I did say it was neat, didn't I?
 
 To run this locally, we take advantage of a great product, [Redpanda](https://vectorized.io/redpanda/) from Vectorized.io. They have a Kafka API compatible streaming platform for mission-critical workloads, and a great way to run that locally (Docker or not).
 
-From a terminal window, in the root directory of the project, with the virtual environment initialized, run the `start.sh` command. You will notice some error messages that indicate that the topics, `increase_temp` and `decrease_temp` need to be created. Ignore for now, given that we are running locally. When moving to a hosted offering, like Confluent Cloud you will need to create topics [manually](https://developer.lightbend.com/docs/akka-serverless/projects/message-brokers.html#_confluent_cloud).
+In a terminal window, in the root of the project directory: `docker-compose -f docker-compose-proxy.yml`. This will start both the Akka Serverless proxy as well as the Redpanda container. From another terminal window, run the `sbt run` command. You will notice some error messages that indicate that the topics, `increase_temp` and `decrease_temp` need to be created. Ignore for now, given that we are running locally. When moving to a hosted offering, like Confluent Cloud you will need to create topics [manually](https://developer.lightbend.com/docs/akka-serverless/projects/message-brokers.html#_confluent_cloud).
 
 ### Make some API calls and issue Kafka events
 First, let's get the initial state of our turkey.
@@ -301,7 +297,7 @@ The result should look like.
 	
 	{"inOven":false,"done":"RAW","internalTemperature":0.0,"externalTemperature":0.0}%
 	
-From a new terminal window, in the root directory of the project, with the virtual environment initialized, run the following command: `python3 kafka_message_generator.py --id myfirstturkey --increase --amount 100`. This will fire a `TemperatureChangeCommand` event on the `increase_temp` topic, sent to the locally running Redpanda cluster.
+From a new terminal window, in the root directory of the project: `sbt "runMain com.example.KafkaMessageGenerator myfirstturkey increase 10"`. This will fire a `TemperatureChangeCommand` event on the `increase_temp` topic, sent to the locally running Redpanda cluster.
 
 Now if we make that same `GET` call again, from above.
 
@@ -309,7 +305,7 @@ Now if we make that same `GET` call again, from above.
 	
 The result should look like.
 	
-	{"inOven":false,"done":"RAW","internalTemperature":0.0,"externalTemperature":100.0}%
+	{"inOven":false,"done":"RAW","internalTemperature":10.0,"externalTemperature":0.0}%
 	
 We have successfully delivered event data from an external source, via Kafka (Redpanda in this local case), into Akka Serverless. Profit!
 
@@ -317,12 +313,11 @@ We have successfully delivered event data from an external source, via Kafka (Re
 1. [Install the Akka Serverless CLI](https://developer.lightbend.com/docs/akka-serverless/akkasls/install-akkasls.html);
 2. Once installed, you can sign-up for a new account via `akkasls auth signup` (or visit the [Console Sign-up page](https://console.akkaserverless.lightbend.com/p/register);
 3. Login to your account via the CLI: `akkasls auth login`;
-4. In a terminal window, in the root directory of the project, with the virtual environment initialized, set some Docker environment variables: `export DOCKER_REGISTRY=docker.io` and `export DOCKER_USER=<insert your docker hub username>`.
-5. In the same terminal window, run the command `docker_build.sh 0.0.1` and then `docker_push.sh 0.0.1`.
-6. Configure your Kakfa broker per the [documentation](https://developer.lightbend.com/docs/akka-serverless/projects/message-brokers.html#_confluent_cloud. **Do not pick the Python client, since the actual Kafka integration is running in the Akka Serverless proxy.**
-7. Per the same documentation, create the `increase_temp` and `decrease_temp` topics in Confluent Cloud.
-9. In the same terminal window, run the command `akkasls services deploy turkey-tracker $DOCKER_REGISTRY/$DOCKER_USER/turkey_tracker_python:0.0.1`
-10. In the same terminal window, run the command `akkasls services proxy turkey-tracker --grpcui`. You can use this to explore the API running in the cloud without [exposing](https://developer.lightbend.com/docs/akka-serverless/akkasls/akkasls_services_expose.html) over the internet.
+4. In a terminal window, in the root directory of the project, package up the docker container and publish: `sbt docker:publish -Ddocker.username=<insert docker registry username>`.
+5. Configure your Kakfa broker per the [documentation](https://developer.lightbend.com/docs/akka-serverless/projects/message-brokers.html#_confluent_cloud. **Do not pick the Python client, since the actual Kafka integration is running in the Akka Serverless proxy.**
+6. Per the same documentation, create the `increase_temp` and `decrease_temp` topics in Confluent Cloud.
+7. In the same terminal window, run the command `akkasls services deploy turkey-tracker $DOCKER_REGISTRY/$DOCKER_USER/turkey_tracker_scala:<insert tag from step #4 above`
+8. In the same terminal window, run the command `akkasls services proxy turkey-tracker --grpcui`. You can use this to explore the API running in the cloud without [exposing](https://developer.lightbend.com/docs/akka-serverless/akkasls/akkasls_services_expose.html) over the internet.
 
 ## Conclusion
 Hopefully you now have a better idea on how some of the moving parts work in Akka Serverless and how you can build event driven APIs and services, including those that can be integrated with Kafka. While we're not really cooking turkeys, perhaps one day, we can leverage technologies like this to improve all of our Thanksgiving food-eating experiences!
