@@ -2,6 +2,10 @@ organization := "com.example"
 
 scalaVersion := "2.13.6"
 
+val AkkaStreamKafkaVersion = "2.1.1"
+val AkkaVersion = "2.6.15"
+val JacksonVersion = "2.11.4"
+
 enablePlugins(AkkaserverlessPlugin, JavaAppPackaging, DockerPlugin)
 dockerBaseImage := "docker.io/library/adoptopenjdk:11-jre-hotspot"
 dockerUsername := sys.props.get("docker.username")
@@ -19,5 +23,8 @@ Compile / javacOptions ++= Seq("-Xlint:unchecked", "-Xlint:deprecation", "-param
 )
 
 libraryDependencies ++= Seq(
-  "org.scalatest" %% "scalatest" % "3.2.7" % Test
+  "org.scalatest" %% "scalatest" % "3.2.7" % Test,
+  "com.typesafe.akka"     %% "akka-stream-kafka"     % AkkaStreamKafkaVersion,
+  "com.typesafe.akka" %% "akka-stream" % AkkaVersion,
+  "com.fasterxml.jackson.core" % "jackson-databind" % JacksonVersion
 )

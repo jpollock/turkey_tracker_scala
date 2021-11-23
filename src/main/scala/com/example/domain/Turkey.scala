@@ -27,6 +27,7 @@ class Turkey(context: EventSourcedEntityContext) extends AbstractTurkey {
   }
 
   override def increaseOvenTemperature(currentState: TurkeyState, temperatureChangeCommand: example.TemperatureChangeCommand): EventSourcedEntity.Effect[Empty] = {
+    
     effects
       .emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.EXTERNAL, newTemperature=(currentState.externalTemperature + temperatureChangeCommand.temperatureChange))) 
       .thenReply(_ => Empty.defaultInstance) 
@@ -40,13 +41,13 @@ class Turkey(context: EventSourcedEntityContext) extends AbstractTurkey {
 
   override def increaseTurkeyTemperature(currentState: TurkeyState, temperatureChangeCommand: example.TemperatureChangeCommand): EventSourcedEntity.Effect[Empty] = {
     effects
-      .emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.INTERNAL, newTemperature=(currentState.externalTemperature + temperatureChangeCommand.temperatureChange))) 
+      .emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.INTERNAL, newTemperature=(currentState.internalTemperature + temperatureChangeCommand.temperatureChange))) 
       .thenReply(_ => Empty.defaultInstance) 
   }
 
   override def decreaseTurkeyTemperature(currentState: TurkeyState, temperatureChangeCommand: example.TemperatureChangeCommand): EventSourcedEntity.Effect[Empty]= {
     effects
-      .emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.INTERNAL, newTemperature=(currentState.externalTemperature - temperatureChangeCommand.temperatureChange))) 
+      .emitEvent(TemperatureChange(turkeyId=temperatureChangeCommand.turkeyId, changeType=TemperatureChange.Type.INTERNAL, newTemperature=(currentState.internalTemperature - temperatureChangeCommand.temperatureChange))) 
       .thenReply(_ => Empty.defaultInstance) 
   }
 
@@ -63,9 +64,11 @@ class Turkey(context: EventSourcedEntityContext) extends AbstractTurkey {
   }
 
   override def temperatureChange(currentState: TurkeyState, temperatureChange: TemperatureChange): TurkeyState = {
+    println(temperatureChange)
     temperatureChange.changeType match {
       case TemperatureChange.Type.EXTERNAL => currentState.copy(externalTemperature = temperatureChange.newTemperature)
       case TemperatureChange.Type.INTERNAL => currentState.copy(internalTemperature = temperatureChange.newTemperature)
-    }    
+    }
+    
   }
 }
