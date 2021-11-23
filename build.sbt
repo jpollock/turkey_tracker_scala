@@ -1,5 +1,8 @@
 organization := "com.example"
 
+// set the main class for 'sbt run'
+mainClass in (Compile, run) := Some("com.example.Main")
+
 scalaVersion := "2.13.6"
 
 enablePlugins(AkkaserverlessPlugin, JavaAppPackaging, DockerPlugin)
